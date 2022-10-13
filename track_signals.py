@@ -1,14 +1,19 @@
 import urllib.request
+import re
+import sched, time
+import sys
 
 DSN_URL = "https://eyes.nasa.gov/dsn/data/dsn.xml"
 VALID_STATIONS = ["MVN", "MEX"]
 
-def parse_signal_xml(raw_string, valid_disks):
+def parse_signal_xml(raw_string, name, valid_disks):
     """
     Parses the chunk of XML data to return signal
     objects for a given station.
     """
     parse_dish = raw_string.split("</dish>")
+    parsed_time = re.findall(name + '" timeUTC="[0-9]+"', raw_string)[0]
+    t = int(parsed_time.split('"')[-2])
     
     parsed_valid_dishes = []
     for d in parse_dish:
@@ -17,11 +22,26 @@ def parse_signal_xml(raw_string, valid_disks):
         for d2 in parse_dish2:
             if len(d2) < 10 or d2[1:4] != "DSS":
                 continue
-            print(d2[1:6])
             if int(d2[4:6]) in valid_disks:
                 parsed_valid_dishes.append(d2)
-    
-    print(parsed_valid_dishes)
+    freqs = []
+    powers = []
+    spacecrafts = []
+    signal_types = []
+    for link in parsed_valid_dishes:
+        frequency_strings = re.findall('frequency="[0-9]+"', link)
+        for f in frequency_strings:
+            freqs.append(int(f[11:-1]))
+        power_strings = re.findall('power="[0-9.-]+"', link)
+        for f in power_strings:
+            powers.append(float(f[7:-1]))
+        space_strings = re.findall('spacecraft="[A-Z0-9]+"', link)
+        for f in space_strings:
+            spacecrafts.append(f[12:-1])
+        signal_types.extend(re.findall('(?:up|down)Signal', link))
+        
+    return t, signal_types, freqs, powers, spacecrafts
+
     
 class Signal:
     def __init__(self, t, freq, power, spacecraft):
@@ -50,22 +70,16 @@ class Station:
         Adds uplink object to list if it's not
         the same as previous uplink signal.
         """
-        prev_uplink = self.uplink_list[-1]
-        if (prev_uplink.spacecraft != link_object.spacecraft) or \
-        (prev_uplink.freq != link_object.freq) or \
-        (prev_uplink.power != link_object.power):
-            self.uplink_list.append(link_object)
+        self.uplink_list.append(link_object)
+        return True
     
     def add_downlink(self, link_object):
         """
         Adds downlink object to list if it's not
         the same as previous uplink signal.
         """
-        prev_downlink = self.downlink_list[-1]
-        if (prev_downlink.spacecraft != link_object.spacecraft) or \
-        (prev_downlink.freq != link_object.freq) or \
-        (prev_downlink.power != link_object.power):
-            self.downlink_list.append(link_object)
+        self.downlink_list.append(link_object)
+        return True
             
     def fetch_signals(self):
         """
@@ -77,16 +91,35 @@ class Station:
         resp = urllib.request.urlopen(req)
         data = resp.read().decode("utf-8") 
         
-        signals = parse_signal_xml(data, self.disks)
-        
-        print(signals)
+        t, signal_types, freqs, powers, spacecrafts = parse_signal_xml(data, self.name, self.disks)
+
+        for i in range(len(signal_types)):
+            signal = Signal(t, freqs[i], powers[i], spacecrafts[i])
+            if signal_types[i] == "upSignal":
+                self.add_uplink(signal)
+            else:
+                self.add_downlink(signal)
     
     def log_signals(self):
         """
         Offloads signal lists to file for more
         permanent storage.
         """
-        pass
+        t0 = self.downlink_list[0].t
+        tf = self.downlink_list[-1].t
+        fn = "%s_%d_%d_down.csv" % (self.name, t0, tf)
+        with open(fn, "a+") as f:
+            for s in self.downlink_list:
+                f.write("%d,%d,%f,%s\n" % (s.t, s.freq, s.power, s.spacecraft))
+        t0_up = self.uplink_list[0].t
+        tf_up = self.uplink_list[-1].t
+        fn_up = "%s_%d_%d_up.csv" % (self.name, t0_up, tf_up)
+        with open(fn_up, "a+") as f:
+            for s in self.uplink_list:
+                f.write("%d,%d,%f,%s\n" % (s.t, s.freq, s.power, s.spacecraft))
+        self.uplink_list = []
+        self.downlink_list = []
+        
         
 class CanberraStation(Station):
     def __init__(self):
@@ -99,10 +132,31 @@ class GoldstoneStation(Station):
 class MadridStation(Station):
     def __init__(self):
         super().__init__("Madrid", [63, 65, 53, 54, 55, 56])
-        
-def main():
-    canberra_stream = CanberraStation()
-    canberra_stream.fetch_signals()
+    
+s = sched.scheduler(time.time, time.sleep)
+
+def main_loop(sc, stream): 
+    print("Running loop...")
+    # do your stuff
+    if len(stream.downlink_list) < 1000:
+        stream.fetch_signals()
+    else:
+        stream.log_signals()
+
+    sc.enter(10, 1, main_loop, (sc, stream))
+    
+station = sys.argv[1]
+
+if station == "madrid":
+    stream = MadridStation()
+elif station == "canberra":
+    stream = CanberraStation()
+else:
+    stream = GoldstoneStation()
+
+s.enter(10, 1, main_loop, (s, stream))
+s.run()
+
 
 main()
     
