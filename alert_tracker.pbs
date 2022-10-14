@@ -30,6 +30,6 @@ module load python/3.6.8
 echo "About to change into $PBS_O_WORKDIR"
 cd $PBS_O_WORKDIR            # Change into directory where job was submitted from
 echo "About to start Julia specifying list of assigned nodes"
-python track_signals.py madrid
-echo "Julia exited"
+python track_signals.py canberra
+echo "Python exited"
 date

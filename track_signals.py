@@ -29,17 +29,24 @@ def parse_signal_xml(raw_string, name, valid_disks):
     spacecrafts = []
     signal_types = []
     for link in parsed_valid_dishes:
-        frequency_strings = re.findall('frequency="[0-9]+"', link)
+        frequency_strings = re.findall('frequency="[0-9]*"', link)
         for f in frequency_strings:
-            freqs.append(int(f[11:-1]))
-        power_strings = re.findall('power="[0-9.-]+"', link)
+            try:
+                freqs.append(int(f[11:-1]))
+            except:
+                freqs.append(0)
+        power_strings = re.findall('power="[0-9.-]*"', link)
         for f in power_strings:
-            powers.append(float(f[7:-1]))
+            try:
+                powers.append(float(f[7:-1]))
+            except:
+                powers.append(0.)
         space_strings = re.findall('spacecraft="[A-Z0-9]+"', link)
         for f in space_strings:
             spacecrafts.append(f[12:-1])
-        signal_types.extend(re.findall('(?:up|down)Signal', link))
-        
+        signal_types.extend(re.findall('(up|down)Signal', link))
+    
+    print(len(freqs), len(powers), len(spacecrafts), len(signal_types))
     return t, signal_types, freqs, powers, spacecrafts
 
     
@@ -111,12 +118,13 @@ class Station:
         with open(fn, "a+") as f:
             for s in self.downlink_list:
                 f.write("%d,%d,%f,%s\n" % (s.t, s.freq, s.power, s.spacecraft))
-        t0_up = self.uplink_list[0].t
-        tf_up = self.uplink_list[-1].t
-        fn_up = "%s_%d_%d_up.csv" % (self.name, t0_up, tf_up)
-        with open(fn_up, "a+") as f:
-            for s in self.uplink_list:
-                f.write("%d,%d,%f,%s\n" % (s.t, s.freq, s.power, s.spacecraft))
+        if len(self.uplink_list) > 0:
+            t0_up = self.uplink_list[0].t
+            tf_up = self.uplink_list[-1].t
+            fn_up = "%s_%d_%d_up.csv" % (self.name, t0_up, tf_up)
+            with open(fn_up, "a+") as f:
+                for s in self.uplink_list:
+                    f.write("%d,%d,%f,%s\n" % (s.t, s.freq, s.power, s.spacecraft))
         self.uplink_list = []
         self.downlink_list = []
         
