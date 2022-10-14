@@ -102,7 +102,8 @@ class Station:
 
         for i in range(len(signal_types)):
             signal = Signal(t, freqs[i], powers[i], spacecrafts[i])
-            if signal_types[i] == "upSignal":
+            print(signal_types[i])
+            if signal_types[i] == "up":
                 self.add_uplink(signal)
             else:
                 self.add_downlink(signal)
